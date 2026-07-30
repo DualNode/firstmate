@@ -141,6 +141,8 @@ SUB_HOME_MARKER=".fm-secondmate-home"
 . "$SCRIPT_DIR/fm-gate-refuse-lib.sh"
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
+# shellcheck source=bin/fm-x-lib.sh
+. "$SCRIPT_DIR/fm-x-lib.sh"
 # Fail closed before any fleet mutation: a no-mistakes gate agent must never spawn
 # a direct report (see bin/fm-gate-refuse-lib.sh).
 fm_refuse_if_gate_agent
@@ -528,27 +530,11 @@ fi
 # credential resolution from the faked HOME - both non-optional on every Cursor
 # launch, never an opt-in flag. Read the key once, early, so a missing key
 # refuses before any backend window or worktree is created (mirroring the
-# pi-signed availability check above), following the same .env-reading pattern
-# fmx_env_get (bin/fm-x-lib.sh) uses for the X-mode pairing token: last
-# non-comment assignment wins, optional "export " prefix, surrounding
-# whitespace and one layer of matching quotes stripped.
-cursor_env_get() {  # <key> <file>
-  local key=$1 file=$2 line val
-  [ -f "$file" ] || return 0
-  line=$(grep -E "^[[:space:]]*(export[[:space:]]+)?${key}=" "$file" 2>/dev/null | tail -n1) || return 0
-  [ -n "$line" ] || return 0
-  val=${line#*=}
-  val=${val#"${val%%[![:space:]]*}"}
-  val=${val%"${val##*[![:space:]]}"}
-  case "$val" in
-    \"*\") val=${val#\"}; val=${val%\"} ;;
-    \'*\') val=${val#\'}; val=${val%\'} ;;
-  esac
-  printf '%s' "$val"
-}
+# pi-signed availability check above), reusing fmx_env_get (bin/fm-x-lib.sh),
+# the same .env-reading helper the X-mode pairing token already uses.
 CURSOR_API_KEY_VALUE=
 if [ "$HARNESS" = cursor ]; then
-  CURSOR_API_KEY_VALUE=$(cursor_env_get CURSOR_API_KEY "$FM_HOME/.env")
+  CURSOR_API_KEY_VALUE=$(fmx_env_get CURSOR_API_KEY "$FM_HOME/.env")
   if [ -z "$CURSOR_API_KEY_VALUE" ]; then
     echo "error: CURSOR_API_KEY not found in $FM_HOME/.env; a dedicated Cursor API key is required for every Cursor launch so the isolated-HOME mitigation does not break credential resolution" >&2
     exit 1

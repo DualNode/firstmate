@@ -11,6 +11,14 @@
         "command": ".cursor/hooks/fm-primary-subagent-guard.sh",
         "matcher": "Task"
       }
+    ],
+    "beforeShellExecution": [
+      {
+        "command": ".cursor/hooks/fm-primary-cd-guard.sh"
+      },
+      {
+        "command": ".cursor/hooks/fm-primary-arm-guard.sh"
+      }
     ]
   }
 }

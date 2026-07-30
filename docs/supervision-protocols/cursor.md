@@ -11,6 +11,6 @@ When this session owns supervision and away mode is not active:
 2. Choose a bounded foreground wait the harness can actually wake from (see `unknown.md`); do not arm `bin/fm-watch-arm.sh` for Cursor.
 3. Ordinary wake: drain and handle the wake, then repeat the same verified wait while supervision is still required.
 4. The turn-end guard backstop above still forces one bounded follow-up if a turn would otherwise end blind; treat it as a backstop, not the normal wake path.
-5. Never use shell `&` for watcher supervision.
+5. Never use shell `&` for watcher supervision. This is now also backed by a wired seatbelt, not discipline alone: `.cursor/hooks.json`'s `beforeShellExecution` hooks deny a backgrounded/bundled `bin/fm-watch-arm.sh` call and a persistent top-level `cd`, matching every other verified primary (`docs/arm-pretool-check.md`, `docs/cd-guard.md`).
 
 Interactive TUI primary sessions are the supported host; a headless `cursor-agent --print` call exits after its first response and cannot serve as the primary session.

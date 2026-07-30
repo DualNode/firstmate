@@ -410,6 +410,20 @@ test_grok_wiring() {
   pass ".grok primary cd hook: PreToolUse invokes the cd-guard"
 }
 
+test_cursor_wiring() {
+  local settings command adapter content
+  settings="$ROOT/.cursor/hooks.json"
+  [ -f "$settings" ] || fail "tracked cursor hooks config is missing"
+  command=$(jq -r '.hooks.beforeShellExecution[] | select(.command | contains("fm-primary-cd-guard.sh")) | .command // empty' "$settings")
+  [ -n "$command" ] || fail "cursor cd guard must be wired through beforeShellExecution"
+  adapter="$ROOT/$command"
+  [ -f "$adapter" ] || fail "tracked cursor cd guard adapter is missing: $adapter"
+  content=$(cat "$adapter")
+  assert_contains "$content" 'fm-cd-pretool-check.sh' "cursor cd guard adapter must invoke the cd-guard"
+  assert_contains "$content" '--command' "cursor cd guard adapter must forward the exact command string via --command"
+  pass ".cursor primary cd guard: beforeShellExecution invokes the cd-guard"
+}
+
 test_opencode_wiring() {
   local plugin content
   plugin="$ROOT/.opencode/plugins/fm-primary-cd-check.js"
@@ -456,6 +470,7 @@ test_policy_cli_direct
 test_claude_wiring
 test_codex_wiring
 test_grok_wiring
+test_cursor_wiring
 test_opencode_wiring
 test_pi_wiring
 test_scripts_are_shellcheck_clean

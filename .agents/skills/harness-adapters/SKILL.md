@@ -62,9 +62,11 @@ When changing any primary turn-end hook, validate the real harness behavior in a
 
 ## Primary pre-arm (PreToolUse) seatbelt
 
-The primary integrations for `claude`, `codex`, `opencode`, `pi`, `pi-signed`, and `grok` also have wired PreToolUse-equivalent hooks that deny a watcher-arm anti-pattern (shell `&`, truncating pipe, bundling, broad `pkill -f fm-watch`) before it runs.
+The primary integrations for `claude`, `codex`, `opencode`, `pi`, `pi-signed`, `grok`, and `cursor` also have wired PreToolUse-equivalent hooks that deny a watcher-arm anti-pattern (shell `&`, truncating pipe, bundling, broad `pkill -f fm-watch`) before it runs.
 `claude` and `codex` block directly through PreToolUse hooks; `grok` blocks the same way but requires every `$VAR` reference in its hook `command` string to carry an inline `:-default` or it fails to launch the hook entirely.
 `opencode`, `pi`, and `pi-signed` block by throwing from `tool.execute.before` / returning `{block: true}` from `tool_call`.
+`cursor` blocks through `beforeShellExecution` (not `preToolUse`, since `preToolUse` there is only matched to `Task`), returning `{"permission":"deny",...}`.
+The cd-guard seatbelt (`bin/fm-cd-pretool-check.sh`, `docs/cd-guard.md`) is wired the same way, through the same `beforeShellExecution` event, alongside the watcher-arm guard.
 The exact hook files, commands, output-shaping quirks (Claude Code only honors the deny when stdout is empty), and validation transcripts are owned by `docs/arm-pretool-check.md`.
 When changing any watcher-arm PreToolUse hook, validate the real harness behavior in a scratch project before trusting it, then update that doc.
 ## Primary delegation-shape guard
@@ -429,7 +431,10 @@ Two independent vectors, two independent fixes, both required together (verified
 **Primary-session guard fact (verified 2026-07-30, cursor-agent 2026.07.23-e383d2b).**
 The firstmate PRIMARY's own `.cursor/hooks.json` registers a `stop` hook, `.cursor/hooks/fm-primary-turnend-guard.sh`.
 Cursor's `stop` hook is passive: `exit 2` is acknowledged in its own telemetry (`"status":"blocked"`) but takes no action, while returning `{"followup_message": "..."}` on stdout reliably injects it as a new user-shaped turn - visibly appearing in the pane exactly like typed input, live-verified in a scratch fake-primary home with in-flight work and no watcher beacon. The adapter uses Cursor's own `loop_count` stdin field as the loop guard instead of hand-rolled state: `loop_count > 0` means this stop already follows a forced continuation, translated into a synthetic `stop_hook_active=true` payload for the shared predicate's existing default-mode "never block twice" logic. Live-verified: the forced follow-up's own stop (`loop_count:1`) returned `{}` and no third forced turn appeared, with Cursor's own hook telemetry confirming exactly the expected three `stop` invocations, all `"status":"success"`.
-Cursor has no verified watcher-arm background-wake mechanism yet (no evidence its `Shell`/`AwaitShell` tools serve as a background-task-that-notifies-on-exit the way Grok's tracked background tool call does), so this guard is Cursor's only wired primary-supervision integration; a Cursor primary otherwise follows `docs/supervision-protocols/unknown.md`'s bounded foreground wait. See `docs/supervision-protocols/cursor.md`.
+Cursor has no verified watcher-arm background-wake mechanism yet (no evidence its `Shell`/`AwaitShell` tools serve as a background-task-that-notifies-on-exit the way Grok's tracked background tool call does); a Cursor primary otherwise follows `docs/supervision-protocols/unknown.md`'s bounded foreground wait. See `docs/supervision-protocols/cursor.md`.
+
+**cd-guard and watcher-arm seatbelts (verified 2026-07-30, cursor-agent 2026.07.23-e383d2b).**
+`.cursor/hooks.json` also registers a `beforeShellExecution` hook array running `.cursor/hooks/fm-primary-cd-guard.sh` and `.cursor/hooks/fm-primary-arm-guard.sh`, matching the other five verified primaries' cd-guard and watcher-arm seatbelts (`docs/cd-guard.md`, `docs/arm-pretool-check.md`). `beforeShellExecution` is the same live-verified event the subagent-guard investigation already proved fires correctly, with the exact shell command on the payload's `.command` field. Each adapter extracts `.command`, calls the respective checker with `--command "$CMD"`, and on exit 2 renders `{"permission":"deny","user_message":"...","agent_message":"..."}`. Live-verified headless in a scratch primary-shaped checkout (`cursor-agent --print --trust --force`): a top-level `cd /tmp && echo SHOULD_NOT_RUN` was denied with the `persistent-cd` reason, a backgrounded `bin/fm-watch-arm.sh &` was denied with the `watcher-background` reason, and a plain `ls` ran through unblocked.
 
 **Tool liveness.** The tmux backend classifies the foreground command `cursor-agent` (verified live) as `alive` in `bin/backends/tmux.sh`'s agent-liveness probe.
 
