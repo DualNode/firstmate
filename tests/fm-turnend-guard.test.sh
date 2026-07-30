@@ -109,7 +109,9 @@ install_guard_scripts() {
   cp "$ROOT/bin/fm-wake-lib.sh" "$dir/bin/fm-wake-lib.sh"
   mkdir -p "$dir/docs"
   cp -R "$ROOT/docs/supervision-protocols" "$dir/docs/supervision-protocols"
-  chmod +x "$dir/bin/fm-turnend-guard.sh" "$dir/bin/fm-turnend-guard-grok.sh" "$dir/bin/fm-operational-input.sh" "$dir/bin/fm-supervision-instructions.sh" "$dir/bin/fm-harness.sh"
+  mkdir -p "$dir/.cursor/hooks"
+  cp "$ROOT/.cursor/hooks/fm-primary-turnend-guard.sh" "$dir/.cursor/hooks/fm-primary-turnend-guard.sh"
+  chmod +x "$dir/bin/fm-turnend-guard.sh" "$dir/bin/fm-turnend-guard-grok.sh" "$dir/bin/fm-operational-input.sh" "$dir/bin/fm-supervision-instructions.sh" "$dir/bin/fm-harness.sh" "$dir/.cursor/hooks/fm-primary-turnend-guard.sh"
 }
 
 mark_codex_hook_root() {
@@ -605,6 +607,44 @@ EOF
   [ -z "$out" ] || fail "grok adapter printed output while loop-guarded: $out"
   [ ! -e "$log" ] || fail "grok adapter spawned another resume while loop-guarded: $(cat "$log")"
   pass "fm-turnend-guard-grok: loop guard prevents a nested resume loop"
+}
+
+test_cursor_adapter_forces_followup_when_unhealthy() {
+  local dir out status
+  dir=$(make_primary_dir "$TMP_ROOT/cursor-adapter-block")
+  : > "$dir/state/task1.meta"
+  out=$(printf '{"loop_count":0,"workspace_roots":["%s"]}' "$dir" \
+    | bash "$dir/.cursor/hooks/fm-primary-turnend-guard.sh" 2>&1)
+  status=$?
+  expect_code 0 "$status" "cursor adapter must exit 0 even when forcing a followup"
+  echo "$out" | jq -e . >/dev/null 2>&1 || fail "cursor adapter must emit valid JSON: $out"
+  assert_contains "$out" 'followup_message' "cursor adapter must return a followup_message when the shared predicate blocks"
+  assert_contains "$out" 'FIRSTMATE_OP: v1 turn-end-guard: TURN WOULD END BLIND' "cursor adapter must retain the typed guard kind"
+  pass "cursor adapter: forces one followup_message when the shared predicate blocks (loop_count:0)"
+}
+
+test_cursor_adapter_loop_count_skips_followup() {
+  local dir out status
+  dir=$(make_primary_dir "$TMP_ROOT/cursor-adapter-loop")
+  : > "$dir/state/task1.meta"
+  out=$(printf '{"loop_count":1,"workspace_roots":["%s"]}' "$dir" \
+    | bash "$dir/.cursor/hooks/fm-primary-turnend-guard.sh" 2>&1)
+  status=$?
+  expect_code 0 "$status" "cursor adapter must exit 0 when allowing its own forced turn to end"
+  [ "$out" = "{}" ] || fail "cursor adapter must allow (empty JSON) once loop_count > 0, got: $out"
+  pass "cursor adapter: loop_count > 0 translates to stop_hook_active and skips a second followup"
+}
+
+test_cursor_adapter_healthy_allows() {
+  local dir out status
+  dir=$(make_primary_dir "$TMP_ROOT/cursor-adapter-healthy")
+  touch "$dir/state/.last-watcher-beat"
+  out=$(printf '{"loop_count":0,"workspace_roots":["%s"]}' "$dir" \
+    | bash "$dir/.cursor/hooks/fm-primary-turnend-guard.sh" 2>&1)
+  status=$?
+  expect_code 0 "$status" "cursor adapter must exit 0 for a healthy home"
+  [ "$out" = "{}" ] || fail "cursor adapter must allow (empty JSON) for a healthy home with no in-flight work, got: $out"
+  pass "cursor adapter: a healthy home with no in-flight work allows without a followup"
 }
 
 test_settings_hook_uses_claude_project_dir() {
@@ -1117,6 +1157,9 @@ test_hook_silent_without_stdin
 test_hook_runs_fast
 test_grok_adapter_forces_one_resume_when_unhealthy
 test_grok_adapter_loop_guard_skips_resume
+test_cursor_adapter_forces_followup_when_unhealthy
+test_cursor_adapter_loop_count_skips_followup
+test_cursor_adapter_healthy_allows
 test_settings_hook_uses_claude_project_dir
 test_codex_hook_invokes_shared_guard
 test_codex_hook_uses_process_pwd_when_payload_cwd_is_outside_root

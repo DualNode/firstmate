@@ -72,6 +72,9 @@ The direct and passive mechanisms were validated across all five harnesses on 20
 | OpenCode | 1.17.6 | Passive `session.idle` callback | Throwing could not block, while `promptAsync` scheduled one TUI follow-up; headless remained fail-open. |
 | Pi | 0.80.5 | Passive `agent_settled` callback | Exactly one guard follow-up ran for an unhealthy cycle, with no recursion across tool turns. |
 | Grok | 0.2.93 | Passive `Stop` plus bounded resume | Project hook ran under trust, resumed once without inherited bypass permissions, and the environment latch prevented recursion. |
+| Cursor | 2026.07.23-e383d2b | Passive `stop` returning `{"followup_message": ...}`, loop-count-derived `stop_hook_active` | A scratch fake-primary home (in-flight `state/*.meta`, no watcher beacon) forced exactly one follow-up turn (visible in the pane as an injected `FIRSTMATE_OP: v1 turn-end-guard:` message, `loop_count:0`); the follow-up turn's own stop (`loop_count:1`, interrupted) returned `{}` and no third forced turn appeared. Cursor's own hook telemetry logged 3 `"hookStep":"stop"` events, all `"status":"success"`/`"exitCode":0`. |
+
+Cursor was verified 2026-07-30 in a scratch project outside `projects/` (isolated `HOME` plus `CURSOR_API_KEY`, matching the mandatory launch shape), separately from the other five harnesses' 2026-07-08 through 2026-07-24 pass.
 
 The secondmate-home scope and manual-repair wake path were measured with Claude Code 2.1.207 on 2026-07-12, when a native background completion re-invoked the idle model with no human input.
 The current Stop-owned main/secondmate inclusion and child-worktree exclusion are covered deterministically by `tests/fm-claude-stop-autoarm.test.sh`.
