@@ -82,7 +82,7 @@ That warning uses `bin/fm-supervision-instructions.sh --repair-line`, so it alwa
 - If `jq` is removed after installation, the hook remains silent and exits 0, turn-end wakes stop, and Kimi crews fall back to idle detection.
 - Unreadable hook input remains fail-open.
 - No harness adapter uses a shell ampersand to manufacture supervision.
-- Cursor's turn-end guard covers only the blind-turn backstop above; it has no verified watcher-arm background-wake mechanism yet, so a Cursor primary otherwise follows `docs/supervision-protocols/unknown.md`'s bounded foreground wait (see `docs/supervision-protocols/cursor.md`).
+- Cursor's turn-end guard is the blind-turn backstop; its watcher-arm background-wake mechanism (a `Shell` tool call with `block_until_ms: 0` running `bin/fm-watch-arm.sh`, with cursor-agent's own background-completion notification delivering the wake) is separately verified and owned by `docs/supervision-protocols/cursor.md`.
 - Cursor's isolated-HOME plus `CURSOR_API_KEY` launch shape (`bin/fm-spawn.sh`) is a prerequisite for dispatching a Cursor crewmate or secondmate at all, not specific to this guard; a missing key refuses the spawn before any hook can run.
 
 ## Regression coverage

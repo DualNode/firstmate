@@ -150,7 +150,7 @@ repair_line() {
       printf '%s%s\n' "$prefix" 'repair missing watcher supervision with bin/fm-watch-arm.sh as its own Grok tracked background task, never shell &.'
       ;;
     cursor)
-      printf '%s%s\n' "$prefix" 'repair missing watcher supervision with a bounded foreground wait over bin/fm-watch.sh; no watcher-arm background mechanism is verified for Cursor yet, so never use bin/fm-watch-arm.sh or shell &.'
+      printf '%s%s\n' "$prefix" 'repair missing watcher supervision with bin/fm-watch-arm.sh as a Shell tool call using block_until_ms: 0, never shell &.'
       ;;
     *)
       printf '%s%s\n' "$prefix" 'repair missing watcher supervision according to the session-start block for this harness; do not use shell &.'
@@ -176,7 +176,7 @@ ordinary_wake_line() {
       printf '%s\n' '- Ordinary wake: re-arm exactly one bin/fm-watch-arm.sh Grok tracked background task as directed below.'
       ;;
     cursor)
-      printf '%s\n' '- Ordinary wake: repeat the bounded foreground wait over bin/fm-watch.sh directed below; no watcher-arm background mechanism is verified for Cursor yet.'
+      printf '%s\n' '- Ordinary wake: re-arm exactly one bin/fm-watch-arm.sh background Shell call (block_until_ms: 0) as directed below.'
       ;;
     *)
       printf '%s\n' '- Ordinary wake: follow the continuation in the harness protocol below; do not use shell &.'

@@ -1,6 +1,11 @@
 {
   "version": 1,
   "hooks": {
+    "sessionStart": [
+      {
+        "command": ".cursor/hooks/fm-primary-sessionstart-nudge.sh"
+      }
+    ],
     "stop": [
       {
         "command": ".cursor/hooks/fm-primary-turnend-guard.sh"
