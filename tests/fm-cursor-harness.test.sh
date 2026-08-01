@@ -65,6 +65,35 @@ make_spawn_case() {
   printf '%s\n' "$case_dir|$home|$proj|$wt|$fakebin|$launchlog|$id"
 }
 
+# make_spawn_case_with_tracked_cursor_hooks: like make_spawn_case, but the
+# synthetic project repo also tracks a real .cursor/hooks.json and
+# .cursor/hooks/fm-primary-turnend-guard.sh (copied from the real repo root),
+# exactly like every crew worktree of this real firstmate repo does. This
+# reproduces the tracked-file collision the per-task cursor install must
+# avoid: a `cat >` per-task hooks.json write here would show up as a modified
+# tracked file, not a fresh untracked one.
+make_spawn_case_with_tracked_cursor_hooks() {
+  local name=$1 case_dir home proj wt fakebin launchlog id
+  case_dir="$TMP_ROOT/$name"
+  home="$case_dir/home"
+  proj="$case_dir/project"
+  wt="$case_dir/wt"
+  launchlog="$case_dir/launch.log"
+  fakebin=$(make_spawn_fakebin "$case_dir/fake")
+  id="cursor-$name-z1"
+  mkdir -p "$home/data/$id" "$home/projects" "$home/state" "$home/config"
+  printf 'brief for %s\n' "$id" > "$home/data/$id/brief.md"
+  fm_git_init_commit "$proj"
+  mkdir -p "$proj/.cursor/hooks"
+  cp "$ROOT/.cursor/hooks.json" "$proj/.cursor/hooks.json"
+  cp "$ROOT/.cursor/hooks/fm-primary-turnend-guard.sh" "$proj/.cursor/hooks/fm-primary-turnend-guard.sh"
+  git -C "$proj" add .cursor
+  git -C "$proj" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' commit -qm 'add tracked cursor hooks'
+  git -C "$proj" worktree add --quiet -b "fm/$id" "$wt"
+  touch "$home/state/.last-watcher-beat"
+  printf '%s\n' "$case_dir|$home|$proj|$wt|$fakebin|$launchlog|$id"
+}
+
 run_cursor_spawn() {
   local home=$1 proj=$2 wt=$3 fakebin=$4 launchlog=$5 id=$6
   : > "$launchlog"
@@ -124,8 +153,8 @@ EOF
 }
 
 test_cursor_spawn_installs_per_task_turnend_hook() {
-  local rec case_dir home proj wt fakebin launchlog id out status hookjson hooksh
-  rec=$(make_spawn_case turnend-hook)
+  local rec case_dir home proj wt fakebin launchlog id out status pointer
+  rec=$(make_spawn_case_with_tracked_cursor_hooks turnend-hook)
   IFS='|' read -r case_dir home proj wt fakebin launchlog id <<EOF
 $rec
 EOF
@@ -135,29 +164,34 @@ EOF
   status=$?
   expect_code 0 "$status" "cursor spawn should succeed"
 
-  hookjson="$wt/.cursor/hooks.json"
-  hooksh="$wt/.cursor/hooks/fm-turn-end.sh"
-  assert_present "$hookjson" "cursor per-task hooks.json was not installed"
-  assert_present "$hooksh" "cursor per-task turn-end hook script was not installed"
-  assert_grep '"stop"' "$hookjson" "cursor per-task hooks.json did not register a stop hook"
-  assert_grep '.cursor/hooks/fm-turn-end.sh' "$hookjson" "cursor per-task hooks.json did not point at the turn-end script"
-  [ -x "$hooksh" ] || fail "cursor per-task turn-end hook script is not executable"
+  pointer="$wt/.fm-cursor-turnend"
+  assert_present "$pointer" "cursor per-task .fm-cursor-turnend pointer was not installed"
+  assert_grep "$home/state/$id.turn-ended" "$pointer" "cursor per-task pointer did not name the turn-end marker"
 
   local exclude_file
   exclude_file=$(git -C "$wt" rev-parse --git-path info/exclude)
-  assert_grep '.cursor/hooks.json' "$exclude_file" "cursor hooks.json was not excluded from git"
-  assert_grep '.cursor/hooks/fm-turn-end.sh' "$exclude_file" "cursor turn-end hook script was not excluded from git"
+  assert_grep '.fm-cursor-turnend' "$exclude_file" "cursor turn-end pointer was not excluded from git"
+
+  # Regression guard for the tracked-file collision this pointer design
+  # replaces: the crew worktree's checked-out .cursor/hooks.json must remain
+  # byte-identical to the tracked repo version after a Cursor spawn.
+  local wt_status
+  wt_status=$(git -C "$wt" status --porcelain -- .cursor/hooks.json)
+  [ -z "$wt_status" ] || fail "cursor spawn modified the tracked .cursor/hooks.json in the worktree: $wt_status"
+  diff -q "$ROOT/.cursor/hooks.json" "$wt/.cursor/hooks.json" >/dev/null \
+    || fail "cursor spawn left the worktree's .cursor/hooks.json different from the tracked repo version"
 
   local target
   target="$home/state/$id.turn-ended"
   [ ! -e "$target" ] || fail "turn-end marker should not exist before the hook fires"
   local hookout
-  hookout=$(bash "$hooksh" < /dev/null)
-  [ -e "$target" ] || fail "cursor turn-end hook did not touch the turn-end marker"
-  [ "$hookout" = "{}" ] || fail "cursor turn-end hook must emit valid empty JSON on stdout, got: $hookout"
+  hookout=$(printf '{"loop_count":0,"workspace_roots":["%s"]}' "$wt" \
+    | bash "$wt/.cursor/hooks/fm-primary-turnend-guard.sh")
+  [ -e "$target" ] || fail "cursor turn-end guard did not touch the turn-end marker via the per-task pointer"
+  echo "$hookout" | jq -e . >/dev/null 2>&1 || fail "cursor turn-end guard must emit valid JSON, got: $hookout"
 
   cleanup_task_tmp "$id"
-  pass "cursor spawn installs a per-task turn-end hook that touches the marker and emits valid JSON"
+  pass "cursor spawn installs a per-task turn-end pointer that the tracked primary guard touches, without disturbing the tracked hooks.json"
 }
 
 test_cursor_harness_detection() {

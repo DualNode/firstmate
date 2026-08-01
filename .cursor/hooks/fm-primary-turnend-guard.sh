@@ -12,6 +12,15 @@
 # turn, so it is translated into a synthetic stop_hook_active=true payload for
 # the shared predicate's existing "never block twice" default-mode logic
 # rather than reimplementing that guard here.
+#
+# This same tracked script also carries the crew turn-end signal: a crew
+# worktree is a checkout of this repo, so its .cursor/hooks.json is this
+# very tracked file, not a writable per-task file. fm-spawn.sh drops an
+# untracked .fm-cursor-turnend pointer naming the task's turn-ended marker;
+# below, if that pointer exists, it is touched before anything else. That is
+# harmless to run alongside the primary-guard logic that follows, since that
+# logic already self-scopes to a safe no-op in a crew worktree via
+# bin/fm-turnend-guard.sh's own fm_primary_scope_matches check.
 set -u
 
 PAYLOAD=$(cat 2>/dev/null || true)
@@ -23,6 +32,16 @@ ROOT=$(printf '%s' "$PAYLOAD" | jq -r '.workspace_roots[0] // empty' 2>/dev/null
 if [ -z "$ROOT" ]; then
   ROOT=$(pwd -P) || { printf '{}'; exit 0; }
 fi
+
+POINTER="$ROOT/.fm-cursor-turnend"
+if [ -f "$POINTER" ]; then
+  CREW_TARGET=
+  IFS= read -r CREW_TARGET < "$POINTER" 2>/dev/null || true
+  case "$CREW_TARGET" in
+    /*.turn-ended) touch "$CREW_TARGET" 2>/dev/null || true ;;
+  esac
+fi
+
 [ -x "$ROOT/bin/fm-turnend-guard.sh" ] || { printf '{}'; exit 0; }
 
 LOOP_COUNT=$(printf '%s' "$PAYLOAD" | jq -r '.loop_count // 0' 2>/dev/null) || LOOP_COUNT=0

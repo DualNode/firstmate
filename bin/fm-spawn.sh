@@ -468,8 +468,9 @@ launch_template() {
     # the per-task temp root exists; it has no effort flag (embedded in the
     # model string, not a discrete CLI flag) so __EFFORTFLAG__ is omitted.
     # cursor's turn-end signal does NOT ride the launch command - it is a
-    # per-task .cursor/hooks.json stop hook installed below, so the template
-    # is identical for ship/scout/secondmate.
+    # per-task .fm-cursor-turnend pointer installed below, read by the
+    # tracked primary guard hook, so the template is identical for
+    # ship/scout/secondmate.
     cursor) printf '%s' 'cursor-agent --trust --force __MODELFLAG__"$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
     *) return 1 ;;
   esac
@@ -1453,23 +1454,15 @@ EOF
       exclude_path '.fm-kimi-turnend'
       ;;
     cursor*)
-      # cursor-agent's stop hook is passive and requires valid JSON stdout
-      # (empty/non-JSON output is logged as errorClass:invalid_json in its own
-      # telemetry, verified), unlike Claude's bare `touch` command. A separate
-      # per-task script avoids nested-quote escaping in hooks.json.
-      mkdir -p "$WT/.cursor/hooks"
-      cat > "$WT/.cursor/hooks.json" <<'EOF'
-{"version":1,"hooks":{"stop":[{"command":".cursor/hooks/fm-turn-end.sh"}]}}
-EOF
-      cat > "$WT/.cursor/hooks/fm-turn-end.sh" <<EOF
-#!/usr/bin/env bash
-cat >/dev/null 2>&1 || true
-touch '$TURNEND' 2>/dev/null || true
-printf '{}'
-EOF
-      chmod +x "$WT/.cursor/hooks/fm-turn-end.sh"
-      exclude_path '.cursor/hooks.json'
-      exclude_path '.cursor/hooks/fm-turn-end.sh'
+      # .cursor/hooks.json is a TRACKED repo-root file (the primary's own
+      # stop/preToolUse/beforeShellExecution guard wiring), already present
+      # in this crew worktree's checkout - writing a per-task hooks.json here
+      # would overwrite that tracked file instead of creating a new one. So
+      # the crew turn-end signal is an untracked pointer, like the grok/kimi
+      # crew turn-end pointer, that the tracked
+      # .cursor/hooks/fm-primary-turnend-guard.sh reads and touches.
+      printf '%s\n' "$TURNEND" > "$WT/.fm-cursor-turnend"
+      exclude_path '.fm-cursor-turnend'
       ;;
   esac
 fi

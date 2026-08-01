@@ -205,7 +205,7 @@ The Kimi installer requires an existing regular non-symlink `~/.kimi-code/config
 Its `remove` action excises only the marker-delimited Firstmate region and removes Firstmate's hook files.
 For Pi and pi-signed secondmate launches, `fm-spawn.sh` starts the selected executable with `-e` pointed at the secondmate home's own tracked `.pi/extensions/fm-primary-pi-watch.ts` and `.pi/extensions/fm-primary-turnend-guard.ts`, both already present from the secondmate home's git worktree.
 For Cursor, `fm-spawn.sh` launches `cursor-agent --trust --force` with an isolated, empty scratch directory as `HOME` and `CURSOR_API_KEY` sourced from this home's `.env`, both non-optional on every launch; this decouples credential resolution from the faked `HOME` and starves a global `~/.claude`/`~/.cursor` skill and hook discovery that is not scoped to the current project (see the cursor section of [`harness-adapters`](../.agents/skills/harness-adapters/SKILL.md)).
-It also drops a per-task `.cursor/hooks.json` `stop` hook in the worktree that touches the turn-end marker, cleaned up by teardown like the other harnesses' worktree hook files.
+It also drops a per-task `.fm-cursor-turnend` pointer in the worktree (the tracked `.cursor/hooks.json`/`.cursor/hooks/fm-primary-turnend-guard.sh` primary guard already ships with the checkout and reads this pointer to touch the turn-end marker), cleaned up by teardown like the other harnesses' worktree hook files.
 
 ## Crew dispatch profiles (config/crew-dispatch.json)
 
