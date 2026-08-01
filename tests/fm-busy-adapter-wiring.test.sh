@@ -306,6 +306,116 @@ test_claude_hooks_stale_incarnation_harmless() {
   pass "claude hook events from a superseded incarnation are rejected without breaking the hook"
 }
 
+# make_spawn_case_cursor: like make_spawn_case, but the synthetic project
+# repo also tracks a real .cursor/hooks.json plus the two tracked hook
+# scripts (copied from the real repo root), exactly like every crew worktree
+# of this real firstmate repo. Cursor's busy-state wiring is a per-task
+# pointer (.fm-cursor-busy) into these tracked scripts, unlike claude's
+# self-contained per-task settings.local.json, so the tracked scripts must
+# be present for the drive helpers below to have anything to invoke.
+make_spawn_case_cursor() {  # <name> <id>
+  local name=$1 id=$2 case_dir home proj wt fakebin
+  case_dir="$TMP_ROOT/$name"
+  home="$case_dir/home"
+  proj="$case_dir/project"
+  wt="$case_dir/wt"
+  fakebin=$(make_spawn_fakebin "$case_dir/fake")
+  mkdir -p "$home/data/$id" "$home/projects" "$home/state" "$home/config"
+  printf 'cursor\n' > "$home/config/crew-harness"
+  printf 'CURSOR_API_KEY=crsr_test_key_value\n' > "$home/.env"
+  printf 'brief for %s\n' "$id" > "$home/data/$id/brief.md"
+  fm_git_init_commit "$proj"
+  mkdir -p "$proj/.cursor/hooks"
+  cp "$ROOT/.cursor/hooks.json" "$proj/.cursor/hooks.json"
+  cp "$ROOT/.cursor/hooks/fm-primary-turnend-guard.sh" "$proj/.cursor/hooks/fm-primary-turnend-guard.sh"
+  cp "$ROOT/.cursor/hooks/fm-primary-submit-guard.sh" "$proj/.cursor/hooks/fm-primary-submit-guard.sh"
+  git -C "$proj" add .cursor
+  git -C "$proj" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' commit -qm 'add tracked cursor hooks'
+  git -C "$proj" worktree add --quiet -b "fm/$id" "$wt"
+  touch "$home/state/.last-watcher-beat"
+  # A real crew worktree is a checkout of this whole repo, so bin/ (which the
+  # tracked hook scripts resolve at runtime from workspace_roots[0]) is
+  # already present; this synthetic project only tracks .cursor/, so copy the
+  # two scripts the hooks actually call in directly.
+  mkdir -p "$wt/bin"
+  cp "$ROOT/bin/fm-busy-event.sh" "$ROOT/bin/fm-busy-lib.sh" "$wt/bin/"
+  printf '%s\n' "$case_dir|$home|$proj|$wt|$fakebin"
+}
+
+# run_cursor_hook <wt> <script> [json-fields...]: invoke a tracked cursor
+# hook script with a payload naming <wt> as the sole workspace root, merging
+# in any extra top-level JSON fields (e.g. status for the stop hook).
+run_cursor_hook() {  # <wt> <script> <extra-json-or-empty>
+  local wt=$1 script=$2 extra=${3:-} payload
+  if [ -n "$extra" ]; then
+    payload=$(printf '{"workspace_roots":["%s"],%s}' "$wt" "$extra")
+  else
+    payload=$(printf '{"workspace_roots":["%s"]}' "$wt")
+  fi
+  printf '%s' "$payload" | bash "$wt/.cursor/hooks/$script"
+}
+
+test_cursor_hooks_semantic_lifecycle() {
+  local rec id=busy-cu-1 out state wt
+  rec=$(make_spawn_case_cursor cursor-lifecycle "$id")
+  read_case_record "$rec"
+  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$PROJ_DIR")
+  expect_code 0 $? "cursor spawn should succeed: $out"
+  state="$HOME_DIR/state"
+  wt="$WT_DIR"
+  assert_present "$wt/.fm-cursor-busy" "cursor spawn did not write the per-task busy pointer"
+  assert_grep "state=$state" "$wt/.fm-cursor-busy" "cursor busy pointer did not name the state dir"
+  assert_grep "id=$id" "$wt/.fm-cursor-busy" "cursor busy pointer did not name the task id"
+
+  local exclude_file
+  exclude_file=$(git -C "$wt" rev-parse --git-path info/exclude)
+  assert_grep '.fm-cursor-busy' "$exclude_file" "cursor busy pointer was not excluded from git"
+
+  out=$(classify cursor "$id" "$state")
+  [ "$out" = "busy fm-spawn" ] || fail "seed after spawn must be 'busy fm-spawn', got '$out'"
+
+  out=$(run_cursor_hook "$wt" fm-primary-submit-guard.sh) || fail "beforeSubmitPrompt hook command failed"
+  echo "$out" | jq -e . >/dev/null 2>&1 || fail "beforeSubmitPrompt hook must emit valid JSON, got: $out"
+  out=$(classify cursor "$id" "$state")
+  [ "$out" = "busy cursor-hook" ] || fail "beforeSubmitPrompt must classify 'busy cursor-hook', got '$out'"
+
+  rm -f "$state/$id.turn-ended"
+  out=$(run_cursor_hook "$wt" fm-primary-turnend-guard.sh '"loop_count":0,"status":"completed"') \
+    || fail "stop hook command failed"
+  [ -f "$state/$id.turn-ended" ] || fail "stop no longer touches the notification marker"
+  out=$(classify cursor "$id" "$state")
+  [ "$out" = "idle cursor-hook" ] || fail "a completed stop must classify 'idle cursor-hook', got '$out'"
+
+  run_cursor_hook "$wt" fm-primary-submit-guard.sh >/dev/null
+  out=$(run_cursor_hook "$wt" fm-primary-turnend-guard.sh '"loop_count":0,"status":"aborted"') \
+    || fail "aborted stop hook command failed"
+  out=$(classify cursor "$id" "$state")
+  [ "$out" = "idle cursor-hook" ] || fail "a manual-interrupt (aborted) stop must classify idle, got '$out'"
+
+  run_cursor_hook "$wt" fm-primary-submit-guard.sh >/dev/null
+  out=$(run_cursor_hook "$wt" fm-primary-turnend-guard.sh '"loop_count":0,"status":"error"') \
+    || fail "error stop hook command failed"
+  out=$(classify cursor "$id" "$state")
+  [ "$out" = "idle cursor-hook" ] || fail "an API-error stop must classify idle so it can never strand busy, got '$out'"
+  pass "cursor hooks open on beforeSubmitPrompt and close on stop for completed, aborted, and error alike"
+}
+
+test_cursor_hooks_stale_incarnation_harmless() {
+  local rec id=busy-cu-2 out state wt
+  rec=$(make_spawn_case_cursor cursor-stale "$id")
+  read_case_record "$rec"
+  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$PROJ_DIR")
+  expect_code 0 $? "cursor spawn should succeed: $out"
+  state="$HOME_DIR/state"
+  wt="$WT_DIR"
+  "$ROOT/bin/fm-busy-event.sh" arm "$state" "$id" >/dev/null
+  out=$(run_cursor_hook "$wt" fm-primary-submit-guard.sh) \
+    || fail "a stale-gen hook must still exit 0 so Cursor's lifecycle is never broken"
+  out=$(classify cursor "$id" "$state")
+  [ "$out" = "busy fm-spawn" ] || fail "a stale-gen hook event must not change state, got '$out'"
+  pass "cursor hook events from a superseded incarnation are rejected without breaking the hook"
+}
+
 test_codex_unverified_until_a_semantic_source_exists() {
   local rec id=busy-cx-1 out state
   rec=$(make_spawn_case codex-unverified codex "$id")
@@ -345,6 +455,8 @@ test_kimi_and_grok_install_no_unverified_wiring
 test_opencode_plugin_semantic_lifecycle
 test_claude_hooks_semantic_lifecycle
 test_claude_hooks_stale_incarnation_harmless
+test_cursor_hooks_semantic_lifecycle
+test_cursor_hooks_stale_incarnation_harmless
 test_codex_unverified_until_a_semantic_source_exists
 
 echo "all fm-busy-adapter-wiring tests passed"

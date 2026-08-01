@@ -1423,7 +1423,7 @@ if [ "$KIND" != secondmate ]; then
       ;;
   esac
   case "$HARNESS" in
-    claude*|opencode*|pi|pi-signed)
+    claude*|opencode*|pi|pi-signed|cursor*)
       BUSY_GEN=$("$FM_ROOT/bin/fm-busy-event.sh" arm "$STATE_REAL" "$ID") || {
         echo "error: failed to arm the busy-state contract for $ID" >&2
         exit 1
@@ -1625,14 +1625,29 @@ EOF
       ;;
     cursor*)
       # .cursor/hooks.json is a TRACKED repo-root file (the primary's own
-      # stop/preToolUse/beforeShellExecution guard wiring), already present
-      # in this crew worktree's checkout - writing a per-task hooks.json here
-      # would overwrite that tracked file instead of creating a new one. So
-      # the crew turn-end signal is an untracked pointer, like the grok/kimi
-      # crew turn-end pointer, that the tracked
+      # stop/preToolUse/beforeShellExecution/beforeSubmitPrompt guard wiring),
+      # already present in this crew worktree's checkout - writing a per-task
+      # hooks.json here would overwrite that tracked file instead of creating
+      # a new one. So the crew turn-end signal is an untracked pointer, like
+      # the grok/kimi crew turn-end pointer, that the tracked
       # .cursor/hooks/fm-primary-turnend-guard.sh reads and touches.
       printf '%s\n' "$TURNEND" > "$WT/.fm-cursor-turnend"
       exclude_path '.fm-cursor-turnend'
+      # Semantic busy-state pointer (bin/fm-busy-lib.sh): beforeSubmitPrompt
+      # opens a turn, stop closes it - live-verified (2026-08-02) to bracket
+      # a real turn, including the interrupt path, since Cursor's stop hook
+      # fires with status=aborted/error there too, unlike Claude where a
+      # manual interrupt fires no hook at all. One tracked pointer carries
+      # state dir, task id, and the armed gen for both tracked hook scripts
+      # (.cursor/hooks/fm-primary-submit-guard.sh and the stop guard above)
+      # to read; kept separate from .fm-cursor-turnend so the unrelated
+      # turn-end marker's own strict pointer-format tests stay untouched.
+      {
+        echo "state=$STATE_REAL"
+        echo "id=$ID"
+        echo "gen=$BUSY_GEN"
+      } > "$WT/.fm-cursor-busy"
+      exclude_path '.fm-cursor-busy'
       ;;
   esac
 fi
