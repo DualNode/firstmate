@@ -21,6 +21,15 @@
 # harmless to run alongside the primary-guard logic that follows, since that
 # logic already self-scopes to a safe no-op in a crew worktree via
 # bin/fm-turnend-guard.sh's own fm_primary_scope_matches check.
+#
+# It also closes the crew semantic busy-state turn opened by
+# .cursor/hooks/fm-primary-submit-guard.sh (bin/fm-busy-lib.sh, source
+# cursor-hook): a separate untracked .fm-cursor-busy pointer (state dir, task
+# id, armed gen) is read below, live-verified (2026-08-02) to close on every
+# stop status seen - completed, aborted (manual interrupt), and error alike -
+# so no interrupted or failed turn can leave a stale busy record. A primary
+# session carries no such pointer and no-ops here exactly like the turn-end
+# pointer above.
 set -u
 
 PAYLOAD=$(cat 2>/dev/null || true)
@@ -40,6 +49,28 @@ if [ -f "$POINTER" ]; then
   case "$CREW_TARGET" in
     /*.turn-ended) touch "$CREW_TARGET" 2>/dev/null || true ;;
   esac
+fi
+
+BUSY_POINTER="$ROOT/.fm-cursor-busy"
+if [ -f "$BUSY_POINTER" ] && [ -x "$ROOT/bin/fm-busy-event.sh" ]; then
+  BUSY_STATE='' BUSY_ID='' BUSY_GEN=''
+  while IFS='=' read -r key val; do
+    case "$key" in
+      state) BUSY_STATE=$val ;;
+      id) BUSY_ID=$val ;;
+      gen) BUSY_GEN=$val ;;
+    esac
+  done < "$BUSY_POINTER"
+  if [ -n "$BUSY_STATE" ] && [ -n "$BUSY_ID" ] && [ -n "$BUSY_GEN" ]; then
+    STOP_STATUS=$(printf '%s' "$PAYLOAD" | jq -r '.status // empty' 2>/dev/null) || STOP_STATUS=
+    case "$STOP_STATUS" in
+      ''|*[!A-Za-z0-9._-]*) STOP_EVENT=stop ;;
+      *) STOP_EVENT="stop-$STOP_STATUS" ;;
+    esac
+    "$ROOT/bin/fm-busy-event.sh" apply "$BUSY_STATE" "$BUSY_ID" idle \
+      --gen "$BUSY_GEN" --source cursor-hook --event "$STOP_EVENT" \
+      >/dev/null 2>&1 || true
+  fi
 fi
 
 [ -x "$ROOT/bin/fm-turnend-guard.sh" ] || { printf '{}'; exit 0; }

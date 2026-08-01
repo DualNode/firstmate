@@ -11,6 +11,11 @@
         "command": ".cursor/hooks/fm-primary-turnend-guard.sh"
       }
     ],
+    "beforeSubmitPrompt": [
+      {
+        "command": ".cursor/hooks/fm-primary-submit-guard.sh"
+      }
+    ],
     "preToolUse": [
       {
         "command": ".cursor/hooks/fm-primary-subagent-guard.sh",
