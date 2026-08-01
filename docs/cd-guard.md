@@ -74,13 +74,14 @@ It does not permit `cd /home/project`, because an absolute-path `cd` remains a p
 
 ## Transport and fail-open behavior
 
-`bin/fm-cd-pretool-check.sh` supports all five harness-engine entry shapes used by the tracked adapters, with pi-signed sharing Pi's shape:
+`bin/fm-cd-pretool-check.sh` supports all six harness-engine entry shapes used by the tracked adapters, with pi-signed sharing Pi's shape:
 
 - Claude sends stdin JSON at `.tool_input.command` and adds `--claude` to preserve Claude's stderr-only deny requirement.
 - Codex sends stdin JSON at `.tool_input.command` without `--claude`.
 - Grok sends stdin JSON at `.toolInput.command`.
 - OpenCode sends the exact command string through `--command <exact string>`.
 - Pi and pi-signed send the exact command string through `--command <exact string>`.
+- Cursor sends the exact command string through `--command <exact string>`, extracted from the `beforeShellExecution` payload's `.command` field.
 
 Processing order is cheapest-first: a strict-superset prefilter, then the primary-checkout scope, then the Node policy owner.
 The prefilter removes ordinary single quotes, double quotes, backslashes, carriage returns, and newlines before fast-allowing any command that carries no `cd`, `pushd`, or `popd` substring and no quoting-decoder marker (`$'` ANSI-C or `$"` locale), so quoted or escaped command-word fragments delegate to the policy while most commands never pay for the git scoping calls or the Node process.
@@ -117,6 +118,7 @@ The cd-guard never duplicates shell lexing; it adds only the cd-specific decisio
 | Grok | `.grok/hooks/fm-primary-cd-check.json` PreToolUse hook anchored on `${GROK_WORKSPACE_ROOT:-}` | Consumes the stdout `decision=deny` object. |
 | OpenCode | `.opencode/plugins/fm-primary-cd-check.js` `tool.execute.before` | Throws, which surfaces as the failed tool result. |
 | Pi | `.pi/extensions/fm-primary-turnend-guard.ts` `tool_call` handler | Returns `{block: true}`; piggybacks on the already-loaded primary extension so no extra `-e` flag is needed. |
+| Cursor | `.cursor/hooks.json` `beforeShellExecution` hook running `.cursor/hooks/fm-primary-cd-guard.sh` | Extracts `.command` from the payload, calls `bin/fm-cd-pretool-check.sh --command "$CMD"`, and on exit 2 renders Cursor's `beforeShellExecution` deny shape: `{"permission":"deny","user_message":"...","agent_message":"..."}`. |
 
 Each harness runs the cd-guard alongside the watcher-arm seatbelt; the two are independent checks, and either deny blocks the command.
 Every shell variable reference in the Grok hook command carries an inline default (`${GROK_WORKSPACE_ROOT:-}`) because Grok expands the raw hook command before `bash -lc` runs it, the same requirement documented in `docs/arm-pretool-check.md`.
@@ -161,3 +163,14 @@ OPENCODE_CONFIG_CONTENT='{"permission":{"*":"allow"}}' opencode run --print-logs
 pi -p -e .pi/extensions/fm-primary-turnend-guard.ts --no-context-files --no-session "$PROMPT"
 grok --trust -p "$PROMPT" --permission-mode bypassPermissions --output-format plain
 ```
+
+## Cursor live validation record, 2026-07-30
+
+Cursor (`cursor-agent 2026.07.23-e383d2b`) was validated separately in its own scratch primary-shaped checkout (`AGENTS.md`, `bin/` holding the real `fm-cd-pretool-check.sh` plus its policy files, and the tracked `.cursor/hooks.json` and adapter scripts).
+No live watcher, fleet state, or the captain's real primary checkout was involved.
+Run headless via `cursor-agent --print --trust --force --output-format text "$PROMPT"`:
+
+- `cd /tmp && echo SHOULD_NOT_RUN` - denied: `` The command was blocked by a hook (`persistent-cd`) and did not run. ``
+- `ls` - allowed and ran to completion, proving the guard is not overly broad.
+
+See `docs/arm-pretool-check.md`'s matching Cursor entry for the sibling watcher-arm guard, validated in the same session.

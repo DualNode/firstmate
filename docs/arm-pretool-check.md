@@ -24,7 +24,7 @@ It tokenizes the bytes and classifies lexical execution positions only.
 
 - Stdin JSON at `.tool_input.command` for Claude and Codex.
 - Stdin JSON at `.toolInput.command` for Grok.
-- `--command <exact string>` for OpenCode, Pi, and pi-signed.
+- `--command <exact string>` for OpenCode, Pi, pi-signed, and Cursor (Cursor extracts the string from its `beforeShellExecution` payload's `.command` field first).
 - `--background` as a compatibility-only field that never changes the decision.
 - `--claude` to preserve Claude's stderr-only deny requirement.
 
@@ -162,6 +162,7 @@ Prose may improve without changing adapter behavior.
 | Grok | `.toolInput.command` | `.grok/hooks/fm-primary-pretool-check.json` forwards stdin and Grok consumes the stdout `decision=deny` object. |
 | OpenCode | `output.args.command` | `.opencode/plugins/fm-primary-pretool-check.js` passes one `--command` argument and throws only for exit 2. |
 | Pi / pi-signed | `event.input.command` | `.pi/extensions/fm-primary-turnend-guard.ts` passes one `--command` argument and returns `{block: true}` only for exit 2. |
+| Cursor | `.command` (beforeShellExecution payload) | `.cursor/hooks.json`'s `beforeShellExecution` hook runs `.cursor/hooks/fm-primary-arm-guard.sh`, which passes one `--command` argument and renders `{"permission":"deny","user_message":"...","agent_message":"..."}` only for exit 2. |
 
 Grok project hooks require folder trust.
 Every shell variable reference in a Grok hook command must carry an inline default such as `${GROK_WORKSPACE_ROOT:-}` because Grok expands the raw hook command before `bash -lc` runs it.
@@ -225,6 +226,17 @@ Native supervision paths were also validated in the same scratch project:
 - Pi loaded both primary extensions, called `fm_watch_arm_pi`, and created the scratch automatic-arm marker.
 
 Every native-path automatic marker was present and every deny sentinel remained absent.
+
+## Cursor live validation record, 2026-07-30
+
+Cursor (`cursor-agent 2026.07.23-e383d2b`) was validated separately in its own scratch primary-shaped checkout (`AGENTS.md`, `bin/` holding the real `fm-arm-pretool-check.sh` plus `fm-arm-command-policy.mjs`, and the tracked `.cursor/hooks.json` and adapter scripts).
+No live watcher, fleet state, or the captain's real primary checkout was involved.
+Run headless via `cursor-agent --print --trust --force --output-format text "$PROMPT"`:
+
+- `bin/fm-watch-arm.sh &` - denied: `` The command was blocked by a hook: `[watcher-background]` — a protected watcher command cannot run in an asynchronous shell list or through nohup/disown. ``
+- `ls` - allowed and ran to completion, proving the guard is not overly broad.
+
+See `docs/cd-guard.md`'s matching Cursor entry for the sibling cd-guard seatbelt, validated in the same session.
 
 ## Automated validation
 

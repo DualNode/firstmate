@@ -176,6 +176,7 @@ Applicability turns on one question: does the harness expose built-in delegation
 | Grok | present, exact tokens unconfirmed | Not wired pending live verification. See below. |
 | OpenCode | present, exact tokens unconfirmed | Not wired pending live verification. See below. |
 | Pi | none reported | Not wired pending live verification. See below. |
+| Cursor | `Task` (Codex-shaped enumeration name, self-reported `SUBAGENT_TOOL=yes Task`) | Scoped guard wired and live-verified through `preToolUse` matched to `Task`. `subagentStart`/`subagentStop` are confirmed non-functional in this build: a `subagentStart` deny hook never fired and never blocked two live `Task` calls in the same sessions where `preToolUse`/`beforeShellExecution`/`stop` hooks all fired correctly, so the guard does not use those events. See below. |
 
 ### Codex, verified not applicable
 
@@ -211,6 +212,20 @@ SUBAGENT_TOOL=no
 
 `multi_tool_use.parallel` batches calls to the tools above; it does not spawn an agent.
 Codex is therefore not applicable today, and this table row is the tripwire: if a future Codex release adds a delegated-agent tool, wire `.codex/hooks.json` the same way its `Bash` PreToolUse entries already forward stdin to a checker.
+
+### Cursor, wired and live-verified
+
+`.cursor/hooks.json` registers a `preToolUse` hook matched to `Task`, running `.cursor/hooks/fm-primary-subagent-guard.sh`.
+That script extracts `.tool_name` from the hook payload, calls `bin/fm-subagent-pretool-check.sh --tool "$TOOL"` (the same CLI form OpenCode and Pi would use), and on exit 2 translates the script's Grok-shaped stdout reason into Cursor's own `preToolUse` deny shape: `{"permission":"deny","user_message":"...","agent_message":"..."}`.
+
+Live end to end in a scratch project (`cursor-agent 2026.07.23-e383d2b`, isolated `HOME` plus `CURSOR_API_KEY`), prompted to call the `Task` tool with a trivial `generalPurpose` subagent:
+
+```text
+I'll launch that trivial generalPurpose subagent now.Denied: `[subagent-dispatch] the firstmate primary dispatches through the fleet, not the harness's own delegation tools: ... (blocked tool: Task, delegation-shaped on "task"). Launch the session with FM_ALLOW_SUBAGENT=1 for a deliberate exception.`
+```
+
+The hook's own payload log confirmed the exact `preToolUse` shape Cursor delivers for a `Task` call: `"tool_name":"Task","tool_input":{"description":"...","prompt":"...","subagent_type":"generalPurpose"}`.
+This closes the two genuinely-unresolved items a prior investigation flagged for Cursor: `subagentStart`/`subagentStop` are confirmed non-functional (not just unconfirmed) in this build, and `preToolUse` matched to `Task` is now confirmed to honor a `permission:deny` response the same way `beforeShellExecution` already did.
 
 ### Grok, OpenCode, and Pi, inspected but not wired
 

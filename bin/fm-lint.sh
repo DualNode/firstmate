@@ -149,7 +149,7 @@ if [ "$#" -gt 0 ]; then
 else
   # Canonical file set: the one authoritative definition. Callers never repeat
   # these globs, and every adapter and test shell remains an independent root.
-  ROOTS=(bin/*.sh bin/backends/*.sh tests/*.sh)
+  ROOTS=(bin/*.sh bin/backends/*.sh tests/*.sh .cursor/hooks/*.sh)
 fi
 ROOT_COUNT=${#ROOTS[@]}
 

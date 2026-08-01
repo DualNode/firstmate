@@ -22,7 +22,7 @@ CI="$ROOT/.github/workflows/ci.yml"
 NM="$ROOT/.no-mistakes.yaml"
 INSTALLER="$ROOT/bin/fm-install-shellcheck.sh"
 # The authoritative file set the one owner must run.
-CANON='ROOTS=(bin/*.sh bin/backends/*.sh tests/*.sh)'
+CANON='ROOTS=(bin/*.sh bin/backends/*.sh tests/*.sh .cursor/hooks/*.sh)'
 # The pinned version, read from the single source (the one owner itself).
 REQUIRED=$("$LINT" --required-version)
 
@@ -253,7 +253,7 @@ test_source_graph_boundaries_keep_every_owner() {
     grep -q '^[[:space:]]*# shellcheck source=bin/' "$file" || continue
     production_context_tests="${production_context_tests}$(basename "$file")|"
   done
-  [ "$production_context_tests" = 'fm-backend-herdr.test.sh|fm-daemon.test.sh|fm-pending-reply.test.sh|fm-secondmate-sync.test.sh|' ] \
+  [ "$production_context_tests" = 'fm-backend-herdr.test.sh|fm-cursor-harness.test.sh|fm-daemon.test.sh|fm-pending-reply.test.sh|fm-secondmate-sync.test.sh|' ] \
     || fail "only callback/variable interop tests may retain production source context: $production_context_tests"
   pass "dispatcher, adapters, production owner, and tests have explicit lint boundaries"
 }

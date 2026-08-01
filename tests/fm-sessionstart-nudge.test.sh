@@ -183,7 +183,45 @@ test_tracked_harness_registration() {
   assert_contains "$opencode_plugin" 'fm-sessionstart-nudge.sh' "OpenCode plugin does not invoke the wrapper"
   assert_contains "$opencode_plugin" 'promptAsync' "OpenCode plugin does not prompt the nudge turn"
 
-  pass "all five verified harnesses register the shared session-start nudge"
+  command=$(jq -r '.hooks.sessionStart[0].command' "$ROOT/.cursor/hooks.json")
+  assert_contains "$command" 'fm-primary-sessionstart-nudge.sh' "Cursor sessionStart hook does not point at the adapter script"
+  local cursor_adapter
+  cursor_adapter=$(cat "$ROOT/.cursor/hooks/fm-primary-sessionstart-nudge.sh")
+  assert_contains "$cursor_adapter" 'fm-sessionstart-nudge.sh' "Cursor adapter does not invoke the wrapper"
+  assert_contains "$cursor_adapter" 'additional_context' "Cursor adapter does not wrap stdout as additional_context"
+
+  pass "all six verified harnesses register the shared session-start nudge"
+}
+
+test_cursor_adapter_wraps_stdout_as_additional_context() {
+  local dir out
+  dir="$TMP_ROOT/cursor-adapter"
+  mkdir -p "$dir/bin" "$dir/state"
+  cp "$ROOT/bin/fm-sessionstart-nudge.sh" "$ROOT/bin/fm-gate-refuse-lib.sh" \
+    "$ROOT/bin/fm-primary-scope-lib.sh" "$ROOT/bin/fm-operational-input.sh" "$dir/bin/"
+  chmod +x "$dir/bin/fm-sessionstart-nudge.sh"
+  printf '# fake\n' > "$dir/AGENTS.md"
+  git init -q "$dir"
+
+  out=$(printf '{"workspace_roots":["%s"]}' "$dir" \
+    | "$ROOT/.cursor/hooks/fm-primary-sessionstart-nudge.sh")
+  printf '%s' "$out" | jq -e . >/dev/null 2>&1 || fail "Cursor sessionStart adapter must emit valid JSON: $out"
+  assert_contains "$out" 'additional_context' "Cursor adapter output is missing additional_context"
+  assert_contains "$out" 'fm-session-start.sh' "Cursor adapter's additional_context did not carry the nudge text"
+  pass "Cursor sessionStart adapter wraps the wrapper's stdout as additional_context JSON"
+}
+
+test_cursor_adapter_fails_open_without_wrapper() {
+  local dir out
+  dir="$TMP_ROOT/cursor-adapter-no-wrapper"
+  mkdir -p "$dir/bin" "$dir/state"
+  printf '# fake\n' > "$dir/AGENTS.md"
+  git init -q "$dir"
+
+  out=$(printf '{"workspace_roots":["%s"]}' "$dir" \
+    | "$ROOT/.cursor/hooks/fm-primary-sessionstart-nudge.sh")
+  [ "$out" = "{}" ] || fail "Cursor adapter must fail open to {} when the wrapper is absent, got: $out"
+  pass "Cursor sessionStart adapter fails open when bin/fm-sessionstart-nudge.sh is unavailable"
 }
 
 test_genuine_primary_nudges
@@ -195,3 +233,5 @@ test_missing_state_is_silent
 test_owned_lock_is_silent
 test_opencode_plugin_delivers_exact_nudge_once
 test_tracked_harness_registration
+test_cursor_adapter_wraps_stdout_as_additional_context
+test_cursor_adapter_fails_open_without_wrapper

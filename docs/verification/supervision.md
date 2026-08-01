@@ -48,6 +48,10 @@ The earlier `sendUserMessage` counterfactual raced the positional prompt; the cu
 The installed pi-signed 0.82.0 wrapper repeated the Pi primary extension and session-start path on 2026-07-27.
 [`runtime-backends.md`](runtime-backends.md#tmux) owns the shared-ancestry evidence and authoritative selection-marker boundary.
 
+Cursor was verified 2026-08-01 in a scratch project outside `projects/` (isolated `HOME` plus `CURSOR_API_KEY`, cursor-agent 2026.07.23-e383d2b).
+Unit evidence: `bin/fm-sessionstart-nudge.sh`'s plain stdout, wrapped by `.cursor/hooks/fm-primary-sessionstart-nudge.sh`, produced `{"additional_context": "⁣FIRSTMATE_OP: v1 session-start: Run \`bin/fm-session-start.sh\` now, exactly once, before executing any other instructions."}`.
+Live product evidence: `cursor-agent --print --output-format text --trust --force "Without running any tools, just tell me: what special instruction or additional context, if any, did you receive at session start"` returned the exact nudge text quoted back verbatim, confirming plain stdout does not reach model context here but the JSON-wrapped form does - the opposite of Codex/Claude's plain-stdout convention and consistent with Grok's own SessionStart JSON-only delivery constraint.
+
 Current deterministic and live entry points:
 
 ```sh
@@ -63,7 +67,7 @@ The detailed reconciliation and task chronology stay in the private audit report
 
 ## Turn-end guard
 
-The direct and passive mechanisms were validated across all five harnesses on 2026-07-08 through 2026-07-12, with Claude's replacement Stop-owned path revalidated on 2026-07-24.
+The direct and passive mechanisms were validated across five harnesses on 2026-07-08 through 2026-07-12, with Claude's replacement Stop-owned path revalidated on 2026-07-24; Cursor was added and verified separately on 2026-07-30 (see below).
 
 | Harness | Version verified | Mechanism | Observed result |
 | --- | --- | --- | --- |
@@ -72,6 +76,9 @@ The direct and passive mechanisms were validated across all five harnesses on 20
 | OpenCode | 1.17.6 | Passive `session.idle` callback | Throwing could not block, while `promptAsync` scheduled one TUI follow-up; headless remained fail-open. |
 | Pi | 0.80.5 | Passive `agent_settled` callback | Exactly one guard follow-up ran for an unhealthy cycle, with no recursion across tool turns. |
 | Grok | 0.2.93 | Passive `Stop` plus bounded resume | Project hook ran under trust, resumed once without inherited bypass permissions, and the environment latch prevented recursion. |
+| Cursor | 2026.07.23-e383d2b | Passive `stop` returning `{"followup_message": ...}`, loop-count-derived `stop_hook_active` | A scratch fake-primary home (in-flight `state/*.meta`, no watcher beacon) forced exactly one follow-up turn (visible in the pane as an injected `FIRSTMATE_OP: v1 turn-end-guard:` message, `loop_count:0`); the follow-up turn's own stop (`loop_count:1`, interrupted) returned `{}` and no third forced turn appeared. Cursor's own hook telemetry logged 3 `"hookStep":"stop"` events, all `"status":"success"`/`"exitCode":0`. |
+
+Cursor was verified 2026-07-30 in a scratch project outside `projects/` (isolated `HOME` plus `CURSOR_API_KEY`, matching the mandatory launch shape), separately from the other five harnesses' 2026-07-08 through 2026-07-24 pass.
 
 The secondmate-home scope and manual-repair wake path were measured with Claude Code 2.1.207 on 2026-07-12, when a native background completion re-invoked the idle model with no human input.
 The current Stop-owned main/secondmate inclusion and child-worktree exclusion are covered deterministically by `tests/fm-claude-stop-autoarm.test.sh`.
@@ -118,6 +125,12 @@ grok 0.2.103 (89c3d36fb6f1) [stable]
 | OpenCode | `FM_OPENCODE_LIVE_E2E=1 tests/fm-opencode-primary-live-e2e.test.sh` | A verified successor existed before prompt handling, with no model re-arm or turn-end fallback. |
 | Pi | `FM_PI_LIVE_E2E=1 tests/fm-pi-primary-live-e2e.test.sh` | One initial tool call led to extension-owned successors and clean child retirement on exit. |
 | Grok | `FM_GROK_LIVE_E2E=1 tests/fm-grok-continuity-live-e2e.test.sh` | Native task completion surfaced the actionable close and the cycle ledger recorded `reason=actionable-signal`. |
+| Cursor | manual live pass, no automated opt-in test yet (see below) | A `Shell` tool call with `block_until_ms: 0` running the real `bin/fm-watch-arm.sh` produced a genuine background process (confirmed by pid); forcing its exit delivered an unprompted "Finished Arm watcher in background" wake, and the model independently investigated and correctly reported the FAILED-exit condition. |
+
+Cursor's watcher-arm background-wake mechanism was verified 2026-08-01 (cursor-agent 2026.07.23-e383d2b) in a scratch fake-primary home outside `projects/` (plain git-init'd directory with `AGENTS.md`, a full `bin/` copy, and `state/`), using the isolated-`HOME` plus `CURSOR_API_KEY` launch shape.
+General mechanism proof (three observations in a throwaway scratch repo, no firstmate scripts involved): a backgrounded `sleep 15 && touch marker.txt`, after the model said "WAITING" and went idle, produced an unprompted new turn ~15s later reporting completion, with no polling or further input from the operator; the wake granted genuine tool-calling ability, verified by asking the model to read a payload file "when notified," which it did, correctly reporting the file's real secret content; and the wake surfaced a backgrounded command's actual stdout unprompted (a distinctive `echo` string was reported back verbatim).
+Real-integration proof: the fake-primary home's `state/` carried one fake in-flight task meta; the model was instructed to arm via `Shell(command: "bin/fm-watch-arm.sh", block_until_ms: 0)` then end its turn without calling `AwaitShell`; `pgrep` confirmed a genuine `bin/fm-watch.sh` child process was running under that pid; sending it `SIGTERM` to force the armed cycle's exit produced an unprompted wake ("Finished Arm watcher in background") with the model then independently reading a terminal log and correctly reporting "Watcher arm failed: it started (pid=<N>) then the cycle exited with code 1 and no actionable reason" - matching `bin/fm-watch-arm.sh`'s own documented FAILED-exit shape, entirely without further operator input.
+No automated opt-in live-E2E test exists yet for Cursor (unlike the other five harnesses' `FM_*_LIVE_E2E=1` entries above); this is a live-only manual verification pass, recorded here per this repo's evidence rule that every trusted hook must be validated in a scratch project before being wired.
 
 Pi 0.81.1 repeated the continuity and clean-exit lifecycle on 2026-07-23 after the Calm presentation changes.
 

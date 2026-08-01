@@ -468,6 +468,20 @@ test_grok_turnend_hook_uses_safe_var_pattern() {
   pass ".grok primary hook: Stop hook uses the \${VAR:-} pattern throughout (no bare \$root)"
 }
 
+test_cursor_pretool_hook_wired() {
+  local settings command adapter content
+  settings="$ROOT/.cursor/hooks.json"
+  [ -f "$settings" ] || fail "tracked cursor hooks config is missing"
+  command=$(jq -r '.hooks.beforeShellExecution[] | select(.command | contains("fm-primary-arm-guard.sh")) | .command // empty' "$settings")
+  [ -n "$command" ] || fail "cursor watcher-arm guard must be wired through beforeShellExecution"
+  adapter="$ROOT/$command"
+  [ -f "$adapter" ] || fail "tracked cursor watcher-arm guard adapter is missing: $adapter"
+  content=$(cat "$adapter")
+  assert_contains "$content" 'fm-arm-pretool-check.sh' "cursor watcher-arm guard adapter must invoke the shared checker"
+  assert_contains "$content" '--command' "cursor watcher-arm guard adapter must forward the exact command string via --command"
+  pass ".cursor primary hook: beforeShellExecution invokes the shared checker"
+}
+
 test_claude_settings_pretool_hook_wired() {
   local settings command
   settings="$ROOT/.claude/settings.json"
@@ -555,6 +569,7 @@ test_default_mode_stdout_has_grok_json_on_deny
 test_allow_is_silent_both_modes
 test_grok_pretool_hook_wired
 test_grok_turnend_hook_uses_safe_var_pattern
+test_cursor_pretool_hook_wired
 test_claude_settings_pretool_hook_wired
 test_codex_hooks_pretool_wired
 test_opencode_pretool_plugin_wired

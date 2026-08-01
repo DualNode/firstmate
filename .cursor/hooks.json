@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "command": ".cursor/hooks/fm-primary-sessionstart-nudge.sh"
+      }
+    ],
+    "stop": [
+      {
+        "command": ".cursor/hooks/fm-primary-turnend-guard.sh"
+      }
+    ],
+    "preToolUse": [
+      {
+        "command": ".cursor/hooks/fm-primary-subagent-guard.sh",
+        "matcher": "Task"
+      }
+    ],
+    "beforeShellExecution": [
+      {
+        "command": ".cursor/hooks/fm-primary-cd-guard.sh"
+      },
+      {
+        "command": ".cursor/hooks/fm-primary-arm-guard.sh"
+      }
+    ]
+  }
+}

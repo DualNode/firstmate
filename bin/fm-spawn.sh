@@ -59,7 +59,7 @@
 #   profile consultation. A --secondmate spawn is exempt and resolves the SECONDMATE
 #   harness (config/secondmate-harness -> config/crew-harness -> own), so the
 #   secondmate-vs-crewmate split is DURABLE across every respawn (recovery,
-#   /updatefirstmate, restart). A bare adapter name (claude|codex|opencode|pi|pi-signed|grok|kimi)
+#   /updatefirstmate, restart). A bare adapter name (claude|codex|opencode|pi|pi-signed|grok|kimi|cursor)
 #   overrides it for this spawn (either kind). A non-flag string containing
 #   whitespace is treated as a RAW launch command - the escape hatch for verifying
 #   new adapters. pi-signed launches that exact executable name from PATH and
@@ -141,6 +141,8 @@ SUB_HOME_MARKER=".fm-secondmate-home"
 . "$SCRIPT_DIR/fm-gate-refuse-lib.sh"
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
+# shellcheck source=bin/fm-x-lib.sh
+. "$SCRIPT_DIR/fm-x-lib.sh"
 # Fail closed before any fleet mutation: a no-mistakes gate agent must never spawn
 # a direct report (see bin/fm-gate-refuse-lib.sh).
 fm_refuse_if_gate_agent
@@ -389,7 +391,7 @@ FIRSTMATE_HOME=
 
 if [ "$KIND" = secondmate ]; then
   case "${POS[1]:-}" in
-    ''|claude|codex|opencode|pi|pi-signed|grok|kimi)
+    ''|claude|codex|opencode|pi|pi-signed|grok|kimi|cursor)
       ARG3=${POS[1]:-}
       ;;
     *' '*)
@@ -455,6 +457,21 @@ launch_template() {
     # Its turn-end signal is a globally configured Stop hook plus a guarded
     # per-task worktree token, so no launch placeholder belongs here.
     kimi) printf '%s' '__KIMIBIN__ __MODELFLAG__--auto' ;;
+    # cursor-agent: a positional prompt starts the supervised interactive
+    # session, cwd already the treehouse-provided worktree (no
+    # -w/--worktree/--worktree-base). --trust --force together suppress the
+    # workspace-trust dialog AND the shell-command approval gate (--trust
+    # alone does not persist without --force-only launches, and --force alone
+    # still shows the trust dialog interactively; both are required every
+    # launch). The isolated-HOME + CURSOR_API_KEY env prefix that starves the
+    # global ~/.claude/~/.cursor skill and hook discovery is added below, once
+    # the per-task temp root exists; it has no effort flag (embedded in the
+    # model string, not a discrete CLI flag) so __EFFORTFLAG__ is omitted.
+    # cursor's turn-end signal does NOT ride the launch command - it is a
+    # per-task .fm-cursor-turnend pointer installed below, read by the
+    # tracked primary guard hook, so the template is identical for
+    # ship/scout/secondmate.
+    cursor) printf '%s' 'cursor-agent --trust --force __MODELFLAG__"$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
     *) return 1 ;;
   esac
 }
@@ -505,6 +522,24 @@ esac
 if [ "$HARNESS" = pi-signed ] && ! command -v pi-signed >/dev/null 2>&1; then
   echo "error: pi-signed executable not found on PATH; install the signed Pi wrapper or select a different verified harness" >&2
   exit 1
+fi
+
+# cursor-agent's ancestor-directory rules discovery and global ~/.claude/~/.cursor
+# skill/hook discovery are not scoped to the current project (see the cursor
+# section of the harness-adapters skill). The verified mitigation is an
+# isolated, empty HOME per launch plus a dedicated CURSOR_API_KEY that decouples
+# credential resolution from the faked HOME - both non-optional on every Cursor
+# launch, never an opt-in flag. Read the key once, early, so a missing key
+# refuses before any backend window or worktree is created (mirroring the
+# pi-signed availability check above), reusing fmx_env_get (bin/fm-x-lib.sh),
+# the same .env-reading helper the X-mode pairing token already uses.
+CURSOR_API_KEY_VALUE=
+if [ "$HARNESS" = cursor ]; then
+  CURSOR_API_KEY_VALUE=$(fmx_env_get CURSOR_API_KEY "$FM_HOME/.env")
+  if [ -z "$CURSOR_API_KEY_VALUE" ]; then
+    echo "error: CURSOR_API_KEY not found in $FM_HOME/.env; a dedicated Cursor API key is required for every Cursor launch so the isolated-HOME mitigation does not break credential resolution" >&2
+    exit 1
+  fi
 fi
 
 # config/secondmate-harness may carry optional model/effort tokens alongside the
@@ -578,7 +613,7 @@ model_flag_for_harness() {
   local harness=$1 model=$2
   [ -n "$model" ] && [ "$model" != default ] || return 0
   case "$harness" in
-    claude|codex|opencode|pi|pi-signed|grok|kimi)
+    claude|codex|opencode|pi|pi-signed|grok|kimi|cursor)
       printf -- '--model %s ' "$(shell_quote "$model")"
       ;;
   esac
@@ -622,6 +657,12 @@ effort_flag_for_harness() {
     # to a different, non-interactive launch mode, so fm-spawn does not pass it.
     # kimi likewise has no reasoning-effort flag; the requested axis stays in
     # task metadata but never reaches the launch command.
+    # cursor-agent has no discrete effort flag either: --model accepts a
+    # parameterized bracket override (e.g. 'model[effort=high]') and the
+    # curated catalog bakes effort into distinct model names, but neither is a
+    # separate CLI flag this axis can compose with an arbitrary --model value,
+    # so the requested effort stays in task metadata but never reaches the
+    # launch command.
   esac
 }
 
@@ -1412,7 +1453,38 @@ EOF
       printf 'token=%s\n' "${auth_file##*/}" > "$WT/.fm-kimi-turnend"
       exclude_path '.fm-kimi-turnend'
       ;;
+    cursor*)
+      # .cursor/hooks.json is a TRACKED repo-root file (the primary's own
+      # stop/preToolUse/beforeShellExecution guard wiring), already present
+      # in this crew worktree's checkout - writing a per-task hooks.json here
+      # would overwrite that tracked file instead of creating a new one. So
+      # the crew turn-end signal is an untracked pointer, like the grok/kimi
+      # crew turn-end pointer, that the tracked
+      # .cursor/hooks/fm-primary-turnend-guard.sh reads and touches.
+      printf '%s\n' "$TURNEND" > "$WT/.fm-cursor-turnend"
+      exclude_path '.fm-cursor-turnend'
+      ;;
   esac
+fi
+
+# Isolated HOME + CURSOR_API_KEY: mandatory on every Cursor launch (ship,
+# scout, or secondmate alike, so this sits outside the "$KIND" != secondmate
+# guard above), never an opt-in flag. The key was already validated present
+# early (before backend creation); mint a fresh per-task scratch HOME under
+# the already-cleaned-up task temp root and hand the key to the launched
+# process only through a 0600 file the launch command cats into an env
+# assignment, never as a literal value typed into the pane - a literal value
+# would sit in tmux scrollback and any pane capture/log, unlike an env var
+# (which is not part of a process's argv and so never appears in `ps`).
+if [ "$HARNESS" = cursor ]; then
+  CURSOR_HOME_DIR="$TASK_TMP/cursor-home"
+  mkdir -p "$CURSOR_HOME_DIR"
+  CURSOR_KEYFILE="$TASK_TMP/cursor-api-key"
+  old_umask=$(umask)
+  umask 077
+  printf '%s' "$CURSOR_API_KEY_VALUE" > "$CURSOR_KEYFILE"
+  umask "$old_umask"
+  LAUNCH="HOME=$(shell_quote "$CURSOR_HOME_DIR") CURSOR_API_KEY=\$(cat $(shell_quote "$CURSOR_KEYFILE")) $LAUNCH"
 fi
 
 # Per-project delivery mode + yolo flag (bin/fm-project-mode.sh; the project-management skill and AGENTS.md task lifecycle).

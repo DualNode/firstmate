@@ -44,6 +44,7 @@ If `jq` is missing or hook stdin is empty, the guard exits 0 because it cannot s
 - Pi listens for `agent_settled` in `.pi/extensions/fm-primary-turnend-guard.ts`, runs once per logical agent run, and calls `pi.sendUserMessage(..., { deliverAs: "followUp" })` once when the guard returns 2.
 - Grok registers a `Stop` hook in `.grok/hooks/fm-primary-turnend-guard.json` and uses `bin/fm-turnend-guard-grok.sh` to resume the reported session once when the shared guard returns 2.
   The adapter intentionally omits `--permission-mode`, so a passive hook cannot grant stronger permissions than the resumed session default.
+- Cursor registers a `stop` hook in `.cursor/hooks.json` and uses `.cursor/hooks/fm-primary-turnend-guard.sh` to return `{"followup_message": "..."}` once when the shared guard returns 2, forcing exactly one bounded follow-up turn.
 
 Claude and Codex can block a Stop directly with exit status 2 and stderr.
 Both payloads carry `stop_hook_active`.
@@ -55,13 +56,14 @@ The Claude mode waits up to `FM_CLAUDE_AUTOARM_SYNC_WAIT_MS` (default 800 millis
 When none of those proofs appears, it re-blocks up to `FM_CLAUDE_TURNEND_BLOCK_BUDGET` times (default 3, below Claude's 8-block override), then allows degraded with a visible `systemMessage`.
 Any allow resets the budget.
 
-OpenCode, Pi, pi-signed, and Grok expose passive callbacks for this purpose.
+OpenCode, Pi, pi-signed, Grok, and Cursor expose passive callbacks for this purpose.
 Their adapters fail open at the hook boundary to protect the user session but schedule one bounded follow-up when the predicate blocks.
 The generated prompts use the canonical `turn-end-guard` kind after the U+2063 `FIRSTMATE_OP: ` prefix, so Ahoy does not treat them as captain messages.
 Each adapter owns a loop latch.
 Pi keeps the latch across internal tool turns and clears it only when the generated follow-up settles or delivery fails.
 Grok's project hook requires the checkout to be trusted with `/hooks-trust` or launch-time `--trust`.
 OpenCode's forced follow-up is supported for persistent TUI sessions and remains fail-open in headless `opencode run`.
+Cursor's `stop` hook cannot block directly (verified: `exit 2` is acknowledged in its own telemetry but takes no action), so the loop latch is Cursor's own `loop_count` payload field rather than adapter-held state: the hook translates `loop_count > 0` into a synthetic `stop_hook_active=true` payload for the shared predicate's existing default-mode "never block twice" logic, so a forced continuation's own stop never re-blocks.
 
 If a passive adapter cannot invoke its SDK, find `grok`, or recover a Grok session id, the next pull-based `fm-guard.sh` call reports the problem.
 That warning uses `bin/fm-supervision-instructions.sh --repair-line`, so it always points to the active harness protocol rather than embedding another repair command.
@@ -80,10 +82,13 @@ That warning uses `bin/fm-supervision-instructions.sh --repair-line`, so it alwa
 - If `jq` is removed after installation, the hook remains silent and exits 0, turn-end wakes stop, and Kimi crews fall back to idle detection.
 - Unreadable hook input remains fail-open.
 - No harness adapter uses a shell ampersand to manufacture supervision.
+- Cursor's turn-end guard is the blind-turn backstop; its watcher-arm background-wake mechanism (a `Shell` tool call with `block_until_ms: 0` running `bin/fm-watch-arm.sh`, with cursor-agent's own background-completion notification delivering the wake) is separately verified and owned by `docs/supervision-protocols/cursor.md`.
+- Cursor's isolated-HOME plus `CURSOR_API_KEY` launch shape (`bin/fm-spawn.sh`) is a prerequisite for dispatching a Cursor crewmate or secondmate at all, not specific to this guard; a missing key refuses the spawn before any hook can run.
 
 ## Regression coverage
 
-`tests/fm-turnend-guard.test.sh` covers the predicate, main and secondmate primary scope, child-worktree exclusion, `FM_HOME` and `FM_STATE_OVERRIDE` precedence, the cooperative `--claude` claim wait, epoch allow, re-block budget, Pi logical-run latching, missing-`jq` behavior, all five primary registrations, and Grok resume permission and recursion safety.
+`tests/fm-turnend-guard.test.sh` covers the predicate, main and secondmate primary scope, child-worktree exclusion, `FM_HOME` and `FM_STATE_OVERRIDE` precedence, the cooperative `--claude` claim wait, epoch allow, re-block budget, Pi logical-run latching, missing-`jq` behavior, all six primary registrations, Grok resume permission and recursion safety, and Cursor's `followup_message`/`loop_count` adapter (forces one followup when unhealthy, skips a second on `loop_count > 0`, allows a healthy home, touches a crew worktree's per-task `.fm-cursor-turnend` pointer target while staying silent, rejects a malformed pointer target).
+`tests/fm-cursor-harness.test.sh` covers the separate per-task Cursor crew turn-end pointer (spawn refusal without `CURSOR_API_KEY`, the isolated-HOME launch shape, the untracked `.fm-cursor-turnend` pointer and its marker touch through the tracked primary guard, and that a Cursor spawn never modifies the tracked `.cursor/hooks.json`), harness detection, and the busy-pane regex.
 `tests/fm-kimi-harness.test.sh` covers the separate Kimi crew hook's format preservation, idempotence, refusal cases, token guard, spawn registration, and teardown cleanup.
 `tests/fm-supervision-instructions.test.sh` covers recovery-line ownership and pi-signed's identity-preserving reuse of Pi's protocol.
 `FM_PI_LIVE_E2E=1 tests/fm-pi-primary-live-e2e.test.sh` is the opt-in isolated Pi path.
