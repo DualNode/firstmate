@@ -77,6 +77,7 @@ Each pass polled `state/<id>.busy-state` while a real turn ran.
 | Codex | codex-cli 0.145.0 | None usable | See below; classifies `unknown codex-unverified`. |
 | Kimi (standalone) | not installed | None usable | No binary on `PATH`, so the gate stays closed and it classifies `unknown kimi-unverified`. |
 | Grok | 0.2.112 | Isolated rendered-tail fallback | Retained unconverted; the approved audit could not credit a live structured-lifecycle run. |
+| Cursor | 2026.07.23-e383d2b | None wired | No source is registered in `fm_busy_sources_for_harness`, so it classifies `unknown missing`, the same bucket as Codex and standalone Kimi rather than a special-cased rendered-text fallback (captain decision, 2026-08-02); real semantic wiring is a follow-up. See the cursor section of [`harness-adapters`](../../.agents/skills/harness-adapters/SKILL.md). |
 
 Codex was probed two ways, both refused:
 
