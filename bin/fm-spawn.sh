@@ -3,6 +3,12 @@
 # secondmate in its isolated firstmate home.
 # Usage: fm-spawn.sh <task-id> <project-dir> [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--scout]
 #        fm-spawn.sh <task-id> [<firstmate-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] --secondmate
+#   A spawn missing a required positional refuses on stderr with exit status 2,
+#   naming the argument it lacks followed by its own kind's usage line above
+#   (secondmate takes an optional <firstmate-home> and never a <project-dir>).
+#   usage_signature() below reads those two Usage lines back out of this header,
+#   so keep each one starting with the script name and the secondmate line the
+#   only one carrying --secondmate.
 #   --harness <name> is the explicit per-spawn harness/profile adapter. The old
 #   positional harness arg still works for back-compat.
 #   --model <name> and --effort <low|medium|high|xhigh|max> are concrete profile
