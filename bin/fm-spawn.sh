@@ -132,6 +132,20 @@ usage() {
   sed -n '2,${/^#/!q;p;}' "$0" | sed 's/^# \{0,1\}//'
 }
 
+# The signature a given spawn kind is documented with, read back out of the
+# Usage block in the header above so a refusal message can never drift from the
+# documented usage. secondmate takes an optional <firstmate-home> and never a
+# <project-dir>, so it must not be shown the ship/scout line.
+usage_signature() {
+  local kind=$1 sigs
+  sigs=$(usage | sed -n 's/^[[:space:]]*\(Usage:[[:space:]]*\)\{0,1\}\(fm-spawn\.sh <task-id>.*\)$/\2/p')
+  if [ "$kind" = secondmate ]; then
+    printf '%s\n' "$sigs" | grep -F -m1 -- '--secondmate' || true
+  else
+    printf '%s\n' "$sigs" | grep -F -v -m1 -- '--secondmate' || true
+  fi
+}
+
 case "${1:-}" in
   -h|--help) usage; exit 0 ;;
 esac
@@ -414,7 +428,7 @@ if [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ] && case "$idpart" in *
   exit "$rc"
 fi
 ID=${POS[0]:-}
-[ -n "$ID" ] || { echo "error: missing <task-id> argument: usage: fm-spawn.sh <task-id> <project-dir> [options]" >&2; exit 2; }
+[ -n "$ID" ] || { echo "error: missing <task-id> argument: usage: $(usage_signature "$KIND")" >&2; exit 2; }
 fm_task_id_creation_valid "$ID" || { echo "error: invalid task id" >&2; exit 2; }
 SPAWN_TASK_LOCK="$STATE/.spawn-$ID.lock"
 if ! fm_lock_try_acquire "$SPAWN_TASK_LOCK"; then
@@ -446,7 +460,7 @@ if [ "$KIND" = secondmate ]; then
   esac
 else
   PROJ=${POS[1]:-}
-  [ -n "$PROJ" ] || { echo "error: missing <project-dir> argument: usage: fm-spawn.sh <task-id> <project-dir> [options]" >&2; exit 2; }
+  [ -n "$PROJ" ] || { echo "error: missing <project-dir> argument: usage: $(usage_signature "$KIND")" >&2; exit 2; }
   ARG3=${POS[2]:-}
 fi
 [ -z "$HARNESS_ARG" ] || ARG3=$HARNESS_ARG
