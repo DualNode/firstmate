@@ -444,7 +444,8 @@ if [ "$KIND" = secondmate ]; then
       ;;
   esac
 else
-  PROJ=${POS[1]}
+  PROJ=${POS[1]:-}
+  [ -n "$PROJ" ] || { echo "error: missing <project-dir> argument: usage: fm-spawn.sh <task-id> <project-dir> [options]" >&2; exit 2; }
   ARG3=${POS[2]:-}
 fi
 [ -z "$HARNESS_ARG" ] || ARG3=$HARNESS_ARG

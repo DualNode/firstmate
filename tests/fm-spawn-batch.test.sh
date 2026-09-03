@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Behavior tests for fm-spawn.sh batch dispatch (`id=repo` pairs).
+# Behavior tests for fm-spawn.sh argument routing: batch dispatch (`id=repo`
+# pairs) and single-task positional validation.
 #
 # These exercise argument routing only: each spawn attempt fails fast at the
 # missing-brief check, which is reached before any tmux/treehouse side effect, so
@@ -102,6 +103,30 @@ ROWS
   pass "projects/ paths are scoped through the firstmate home for single-task spawn"
 }
 
+# A single-task spawn with the task id but no <project-dir> must refuse with a
+# usage error that names the missing argument. Before the fix, `PROJ=${POS[1]}`
+# had no `:-` default, so strict mode aborted with a raw
+# "POS[1]: unbound variable" bash internals message instead. The --secondmate
+# branch already tolerated a missing second positional, so this only ever hit
+# ship and scout spawns.
+test_missing_project_dir_reports_usage() {
+  local home out status
+  home="$TMP_ROOT/missing-projdir home"
+  mkdir -p "$home/data" "$home/state"
+  out=$(FM_ROOT_OVERRIDE='' FM_STATE_OVERRIDE='' FM_DATA_OVERRIDE='' \
+    FM_PROJECTS_OVERRIDE='' FM_CONFIG_OVERRIDE='' \
+    FM_HOME="$home" FM_SPAWN_NO_GUARD=1 \
+    "$SPAWN" nope-no-projdir-z9 2>&1)
+  status=$?
+  expect_code 2 "$status" "spawn without <project-dir>"
+  assert_contains "$out" 'missing <project-dir>' \
+    "spawn without a project dir did not name the missing argument"
+  assert_not_contains "$out" 'unbound variable' \
+    "spawn without a project dir crashed on an unbound variable"
+  pass "single-task spawn without <project-dir> refuses with a usage error"
+}
+
 test_batch_dispatches_every_pair
 test_batch_mode_boundaries
 test_projects_path_scoping
+test_missing_project_dir_reports_usage
