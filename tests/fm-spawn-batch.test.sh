@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Behavior tests for fm-spawn.sh batch dispatch (`id=repo` pairs).
+# Behavior tests for fm-spawn.sh argument routing: batch dispatch (`id=repo`
+# pairs) and single-task positional validation.
 #
 # These exercise argument routing only: each spawn attempt fails fast at the
 # missing-brief check, which is reached before any tmux/treehouse side effect, so
@@ -102,6 +103,44 @@ ROWS
   pass "projects/ paths are scoped through the firstmate home for single-task spawn"
 }
 
+# A spawn that omits a required positional must refuse with a usage error
+# naming the argument the operator left out, followed by the signature its own
+# spawn kind is documented with, never a raw bash strict-mode abort. Before the
+# fix `PROJ=${POS[1]}` and `ID=${POS[0]}` had no `:-` default, so strict mode
+# died with "POS[1]: unbound variable" / "POS[0]: unbound variable" bash
+# internals instead. A secondmate takes an optional <firstmate-home> and never a
+# <project-dir>, so it must not be shown the ship/scout signature. The
+# --secondmate branch's tolerance of a missing second positional is unchanged
+# and is not exercised here. stderr is captured on its own so a regression that
+# printed the usage error on stdout would fail. Each row:
+#   <label>|<missing arg>|<expect in signature>|<forbid in signature>|<args>
+test_missing_positional_reports_usage() {
+  local label missing expect forbid args home err status
+  home="$TMP_ROOT/missing-positional home"
+  mkdir -p "$home/data" "$home/state"
+  while IFS='|' read -r label missing expect forbid args; do
+    [ -n "$label" ] || continue
+    # shellcheck disable=SC2086  # args is an intentional word-split arg list
+    err=$(FM_ROOT_OVERRIDE='' FM_STATE_OVERRIDE='' FM_DATA_OVERRIDE='' \
+      FM_PROJECTS_OVERRIDE='' FM_CONFIG_OVERRIDE='' \
+      FM_HOME="$home" FM_SPAWN_NO_GUARD=1 \
+      "$SPAWN" $args 2>&1 >/dev/null)
+    status=$?
+    expect_code 2 "$status" "$label"
+    assert_contains "$err" "missing $missing" "$label: stderr did not name the missing argument"
+    assert_contains "$err" "$expect" "$label: stderr did not show this spawn kind's documented signature"
+    assert_not_contains "$err" "$forbid" "$label: stderr showed a signature this spawn kind does not take"
+    assert_not_contains "$err" 'unbound variable' "$label: aborted on an unbound variable"
+  done <<'ROWS'
+task id without a project dir|<project-dir>|<project-dir>|--secondmate|nope-no-projdir-z9
+no arguments at all|<task-id>|<project-dir>|--secondmate|
+only argument consumed as a flag|<task-id>|<project-dir>|--secondmate|--scout
+secondmate without a task id|<task-id>|<firstmate-home>|<project-dir>|--secondmate
+ROWS
+  pass "spawn missing a required positional refuses on stderr with its own kind's usage signature"
+}
+
 test_batch_dispatches_every_pair
 test_batch_mode_boundaries
 test_projects_path_scoping
+test_missing_positional_reports_usage
